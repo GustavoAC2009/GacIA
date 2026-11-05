@@ -2103,8 +2103,9 @@ class GacIAApp(QMainWindow):
 
     def open_updates(self):
         try:
-            from atualizacoes import versao_atual, url_releases
+            from atualizacoes import canal_atualizacoes, versao_atual, url_releases
             current = versao_atual()
+            channel = canal_atualizacoes()
             releases_url = url_releases()
         except Exception as error:
             QMessageBox.warning(self, "Atualizações", f"Não foi possível localizar as informações de versão: {error}")
@@ -2117,7 +2118,7 @@ class GacIAApp(QMainWindow):
             return
         QMessageBox.information(
             self, "Atualizar Gac.IA",
-            f"Versão instalada: {current}.\n\n"
+            f"Versão instalada: {current} ({'desenvolvimento' if channel == 'development' else 'estável'}).\n\n"
             "A página de versões será aberta no navegador. Entre com uma conta autorizada, baixe GacIA-Setup.exe, "
             "feche a Gac.IA e execute o instalador para atualizar. Conversas, configurações, modelos e dados locais são preservados.",
         )

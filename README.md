@@ -93,10 +93,14 @@ demais dados locais. O preparador de dependências continua disponível em
 Este canal usa um repositório GitHub privado. Cada pessoa que for instalar ou
 atualizar precisa estar autorizada nesse repositório e entrar na própria conta
 GitHub no navegador. Não inclua tokens de acesso do mantenedor no aplicativo.
-Para publicar uma melhoria, atualize `VERSION`, envie a alteração e crie uma tag
-como `v0.1.1`; a ação do GitHub compila o instalador Windows e anexa
-`GacIA-Setup.exe` à release privada. Usuários autorizados baixam a versão nova
-pela opção **Atualizar Gac.IA**.
+As versões são separadas em dois canais. Usuários recebem o canal **estável**,
+que abre somente a release estável mais recente. A instalação de desenvolvimento
+abre a lista de releases para você validar versões preliminares antes da
+publicação estável. Para publicar uma versão estável, use uma tag como
+`v0.1.1`; para uma prévia, selecione `development` no workflow manual e informe
+uma versão como `0.1.1-dev.1`. O GitHub Actions marca essa release como
+pré-lançamento e compila o instalador com o canal embutido. Depois da validação,
+publique a versão estável seguinte; os usuários não recebem pré-lançamentos.
 
 ## Pesquisa web
 

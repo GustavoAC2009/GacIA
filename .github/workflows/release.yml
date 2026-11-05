@@ -10,6 +10,14 @@ on:
         description: Version to publish (for example 0.1.0)
         required: true
         type: string
+      channel:
+        description: Release channel
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - development
 
 permissions:
   contents: write
@@ -29,14 +37,21 @@ jobs:
       - name: Create clean source package
         shell: pwsh
         run: |
-          $tagVersion = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '${{ inputs.version }}' }
+          $tagVersion = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.Substring(1) } else { '${{ inputs.version }}' }
           if ($tagVersion -notmatch '^\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?$') { throw "Invalid version: $tagVersion" }
+          $releaseChannel = if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($tagVersion -match '(?i)(dev|alpha|beta|rc)') { 'development' } else { 'stable' }
+          } else { '${{ inputs.channel }}' }
+          if ($releaseChannel -notin @('stable', 'development')) { throw "Invalid release channel: $releaseChannel" }
+          if ($releaseChannel -eq 'development' -and $tagVersion -notmatch '(?i)(dev|alpha|beta|rc)') { throw 'Development versions must include a suffix such as -dev.1.' }
+          if ($releaseChannel -eq 'stable' -and $tagVersion -match '(?i)(dev|alpha|beta|rc)') { throw 'Prerelease suffixes require the development channel.' }
           Set-Content -LiteralPath VERSION -Value $tagVersion -NoNewline -Encoding utf8
           python empacotar_distribuicao.py --output dist/GacIA-source.zip
           Expand-Archive -LiteralPath dist/GacIA-source.zip -DestinationPath dist/stage -Force
-          $releaseConfig = @{ github_repository = $env:GITHUB_REPOSITORY } | ConvertTo-Json
+          $releaseConfig = @{ github_repository = $env:GITHUB_REPOSITORY; release_channel = $releaseChannel } | ConvertTo-Json
           Set-Content -LiteralPath dist/stage/Gac.IA/release_config.json -Value $releaseConfig -Encoding utf8
           "APP_VERSION=$tagVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_CHANNEL=$releaseChannel" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Install Inno Setup
         shell: pwsh
@@ -57,4 +72,6 @@ jobs:
         shell: pwsh
         run: |
           $tag = "v$env:APP_VERSION"
-          gh release create $tag dist/GacIA-Setup.exe --title "Gac.IA $tag" --generate-notes
+          $releaseArgs = @('release', 'create', $tag, 'dist/GacIA-Setup.exe', '--title', "Gac.IA $tag", '--generate-notes')
+          if ($env:RELEASE_CHANNEL -eq 'development') { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
