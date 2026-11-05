@@ -1,0 +1,78 @@
+GAC.IA — ASSISTENTE LOCAL
+========================
+
+O QUE O PROJETO FAZ
+- Conversa com modelos locais servidos pelo Ollama.
+- Interface desktop nativa PySide6/Qt com respostas em streaming.
+- Histórico SQLite e configurações persistentes.
+- Pesquisa web opcional via DDGS (títulos, links e snippets; não faz scraping).
+- Calculadora segura baseada em AST.
+- Ditado manual e conversa contínua com Faster-Whisper.
+- Voz neural Edge TTS, com fallback SAPI do Windows.
+- Dependências de áudio/IA carregadas sob demanda, quando o recurso é usado.
+
+REQUISITOS
+- Windows 10/11 x64.
+- Python 3.13 x64.
+- Ollama instalado e em execução para conversar.
+- Microfone e saída de áudio para os recursos de voz.
+
+INSTALAÇÃO / ATUALIZAÇÃO
+1. Execute instalar.bat; o instalador procura/instala Python 3.13 x64 e oferece instalar o Ollama pelo winget se ele estiver ausente.
+2. Escolha os componentes opcionais: web e voz/microfone. Aceleração CUDA para Whisper só é oferecida com driver NVIDIA operacional.
+3. Execute preparar.bat para repetir a verificação quando necessário. Ele reutiliza .venv Python 3.13 x64 válido, usa requirements-core.txt e somente os arquivos dos componentes selecionados; roda pip check, verifica imports/sintaxe e testes automatizados.
+4. Use gerenciador.bat para verificar, diagnosticar e adicionar/atualizar os componentes depois.
+5. Se ainda não houver modelo, baixe um no Ollama, por exemplo: ollama pull qwen3.5:4b. Modelos já existentes são detectados e não precisam ser baixados novamente.
+6. Execute iniciar.bat. Para diagnóstico, execute diagnostico.bat.
+
+O instalador baixa dependências Python dos componentes selecionados e, se você marcar a opção em NVIDIA com driver operacional, cuBLAS/cuDNN isolados no ambiente virtual. Não baixa pesos dos modelos Ollama nem Whisper: são grandes e continuam sob demanda. O inventário lista modelos Ollama já baixados e modelos do cache Hugging Face; pacotes compatíveis, caches e modelos existentes são preservados. Componentes opcionais não selecionados não são desinstalados automaticamente.
+
+ATUALIZAR SEM PERDER DADOS
+1. Feche a Gac.IA e faça backup da pasta data (principalmente memory.db).
+2. Extraia o ZIP e copie os arquivos do projeto sobre a pasta atual.
+3. Preserve seu config.json e data/memory.db; não os substitua por cópias vazias.
+4. Execute preparar.bat e depois iniciar.bat.
+
+ARQUIVOS LOCAIS
+- config.json: perfil, modelos, host do Ollama, tema e preferências.
+- data/memory.db: histórico e memórias locais.
+- gacia.log: registro de execução.
+- .venv: ambiente Python específico deste PC.
+O ZIP de atualização não contém .venv, banco local, manifesto de componentes ou log. O arquivo `gerenciador.bat` abre o painel independente da aplicação principal.
+
+DETECÇÃO DE HARDWARE, VOZ E GPU
+- hardware.py identifica CPU, RAM e adaptadores NVIDIA/AMD/Intel sem alterar o sistema.
+- O Ollama escolhe seu próprio backend de GPU conforme versão, driver e hardware.
+- Faster-Whisper/CTranslate2 usa CUDA em GPUs NVIDIA compatíveis; exige cuBLAS CUDA 12 e cuDNN 9.
+- Em AMD, Intel, GPU incompatível ou CUDA ausente, a transcrição utiliza CPU/INT8.
+- Se a inferência CUDA falhar, inclusive ao parar a captura, a Gac.IA tenta CPU.
+- O modo padrão do Whisper é Automático; CUDA e CPU podem ser selecionados manualmente.
+- O preparar.bat não instala drivers ou CUDA/cuDNN do sistema: isso evita instalar
+  componentes errados ou desnecessários em notebooks e PCs sem NVIDIA.
+- O modelo Whisper é baixado na primeira utilização e pode exigir internet.
+- A fala começa após a resposta textual completa; ainda não é TTS token a token.
+
+PERFIL AVANÇADO
+O perfil Avançado usa Qwen 3.5 9B como padrão em instalações novas e exige mais RAM/VRAM.
+A utilização depende da quantização, contexto, hardware e memória disponível.
+O alerta é exibido ao selecionar o perfil avançado; configurações antigas são preservadas.
+O tema escuro é o padrão em instalações novas, com tema claro e automático disponíveis.
+
+PESQUISA WEB
+Usa DDGS/DuckDuckGo para títulos, endereços e resumos fornecidos pela busca.
+Não lê páginas completas nem executa scripts externos. A cobertura depende do
+serviço de busca e os resultados devem ser conferidos nas fontes.
+
+TESTES
+- Diagnóstico: diagnostico.bat
+- Testes: .venv\Scripts\python.exe -m unittest discover -s tests -v
+- A validação automatizada não substitui teste no Windows com Ollama, áudio e CUDA.
+
+AGENTE DE ARQUIVOS / DOCUMENTOS:
+Use o botão + para anexar ZIP, código, Word, Excel, PowerPoint, PDF ou CSV e escreva o que deseja fazer. Também há comandos /analise, /create, /codigo, /executar, /imagem e /ajuda; digite / para ver sugestões.
+Os arquivos enviados são copiados para data/workspaces. Quando o agente altera o projeto, exporta um ZIP em data/exports. Os originais não são modificados.
+O agente pode ler DOCX, XLSX/XLSM, PPTX e PDF; pode criar e editar DOCX e XLSX/XLSM. Formatos Word/Excel antigos (.doc/.xls) precisam ser convertidos.
+A execução de testes pede autorização e se limita a compileall/unittest. Autorize apenas projetos confiáveis: a execução ainda não ocorre dentro de uma VM/contêiner.
+
+GERADOR DE IMAGENS:
+A Gac.IA recomenda ComfyUI Desktop oficial (https://www.comfy.org/download), iniciado pelo próprio usuário; a integração usa a API local em http://127.0.0.1:8188. Instalações portáteis antigas também continuam aceitas. Checkpoints/modelos não são baixados automaticamente.

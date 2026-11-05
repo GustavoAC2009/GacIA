@@ -1,0 +1,8 @@
+# Microfone, transcrição local e síntese de voz.
+numpy>=1.26,<3.0
+sounddevice>=0.5.0,<0.6
+faster-whisper>=1.1.0,<2.0
+pygame>=2.5.2,<3.0
+edge-tts>=6.1.9,<8.0
+pyttsx3>=2.90,<3.0
+pywin32>=306,<400; sys_platform == 'win32'

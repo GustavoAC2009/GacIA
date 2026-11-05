@@ -1,0 +1,5 @@
+# Dependências nativas opcionais para Faster-Whisper/CTranslate2 em NVIDIA.
+# Instaladas pelo instalador somente quando há GPU NVIDIA e driver operacional.
+# Não são necessárias para AMD, Intel ou execução em CPU.
+nvidia-cublas-cu12>=12.4,<13
+nvidia-cudnn-cu12>=9.0,<10

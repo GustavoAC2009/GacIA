@@ -1,0 +1,7 @@
+# Instalação completa legada: núcleo + produtividade + pesquisa + voz.
+# O instalador modular instala apenas os arquivos selecionados.
+-r requirements-core.txt
+-r requirements-office.txt
+-r requirements-web.txt
+-r requirements-voice.txt
+-r requirements-ocr.txt

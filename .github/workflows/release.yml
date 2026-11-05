@@ -1,0 +1,60 @@
+name: Build and publish Windows installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (for example 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create clean source package
+        shell: pwsh
+        run: |
+          $tagVersion = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '${{ inputs.version }}' }
+          if ($tagVersion -notmatch '^\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?$') { throw "Invalid version: $tagVersion" }
+          Set-Content -LiteralPath VERSION -Value $tagVersion -NoNewline -Encoding utf8
+          python empacotar_distribuicao.py --output dist/GacIA-source.zip
+          Expand-Archive -LiteralPath dist/GacIA-source.zip -DestinationPath dist/stage -Force
+          $releaseConfig = @{ github_repository = $env:GITHUB_REPOSITORY } | ConvertTo-Json
+          Set-Content -LiteralPath dist/stage/Gac.IA/release_config.json -Value $releaseConfig -Encoding utf8
+          "APP_VERSION=$tagVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Inno Setup compiler was not installed.' }
+          & $compiler "/DAppVersion=$env:APP_VERSION" /DStageDir="..\dist\stage\Gac.IA" distribuicao/GacIA.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath 'dist/GacIA-Setup.exe')) { throw 'Installer EXE was not created.' }
+
+      - name: Publish private GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "v$env:APP_VERSION"
+          gh release create $tag dist/GacIA-Setup.exe --title "Gac.IA $tag" --generate-notes

@@ -1,0 +1,4 @@
+# Núcleo mínimo: interface desktop nativa Qt, HTTP e suporte básico a imagens.
+PySide6>=6.12,<6.13
+requests>=2.31.0,<3.0
+Pillow>=10.0,<13.0

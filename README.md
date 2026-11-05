@@ -278,4 +278,3 @@ As operações de rede e agente são executadas fora da thread da interface. A p
 ## Interface PySide6 — revisão de 04/11/2026
 
 A janela principal e o gerenciador de componentes usam widgets nativos PySide6/Qt. O layout possui barra lateral recolhível, cabeçalho com perfil e modelo, chat central, tema escuro/claro e campo de mensagem com menu `+` categorizado. O menu reúne Word, Excel, Slides, PDF, E-books, Imagens, Código, Pesquisa na web, Voz e anexos; os controles compactos incluem microfone, Chat ao vivo, pesquisa web, preferências de fontes, Pensar mais e envio. A camada de interface foi separada dos módulos de Ollama, SQLite, agente, anexos, pesquisa e voz. `legacy/interface_customtkinter.py` é apenas uma cópia histórica usada por testes de regressão e não é carregada por `main.py`. Consulte `RELATORIO_MIGRACAO_PYSIDE6_2026-11-04.md` para arquitetura, verificações e limitações da validação visual.
-

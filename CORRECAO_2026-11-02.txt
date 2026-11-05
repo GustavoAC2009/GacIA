@@ -1,0 +1,11 @@
+Gac.IA Pro — correção 2026-11-02
+
+- Corrigido UnboundLocalError de Path em interface.py: _processar_resposta_ia agora usa o import global de pathlib.Path.
+- Reforçada a recuperação da interface quando ocorre erro: o estado ocupado e o cancelamento são liberados antes da renderização da mensagem de erro.
+- Adicionado teste de regressão para impedir que Path volte a ser importado localmente nessa função.
+
+Validação nesta revisão:
+- compileall: aprovado.
+- unittest: 42 testes aprovados.
+
+Observação: a interface gráfica e a integração real com Ollama precisam ser confirmadas no Windows do usuário.

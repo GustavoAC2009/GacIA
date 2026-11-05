@@ -1,0 +1,29 @@
+{
+    "perfil_ativo": "intermediario",
+    "modelos": {
+        "rapido": "qwen3.5:2b",
+        "intermediario": "qwen3.5:4b",
+        "top": "qwen3.5:9b"
+    },
+    "voz": "feminina",
+    "pesquisa_web_ativa": false,
+    "linguagem": "pt-BR",
+    "nome_usuario": "",
+    "personalidade": "equilibrada",
+    "ollama_host": "http://localhost:11434",
+    "ollama_keep_alive": "2m",
+    "modo_pensar_mais": false,
+    "whisper_device": "auto",
+    "whisper_model": "small",
+    "modo_ao_vivo": false,
+    "configuracao_inicial_concluida": false,
+    "tema": "Dark",
+    "gerador_imagens": {
+        "url": "http://127.0.0.1:8188",
+        "checkpoint": "",
+        "width": 768,
+        "height": 768,
+        "steps": 30,
+        "steps_auto": true
+    }
+}

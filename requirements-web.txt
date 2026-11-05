@@ -1,0 +1,2 @@
+# Pesquisa web acionada sob demanda.
+ddgs>=9.10,<10.0

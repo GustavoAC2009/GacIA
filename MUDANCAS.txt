@@ -1,0 +1,173 @@
+GAC.IA — PRINCIPAIS ALTERAÇÕES DESTA REVISÃO
+===========================================
+
+INTERFACE E POP-UPS
+- Painel de Funções e janelas de geração/avisos usam CTkToplevel próprio.
+- Reposicionamento e foco nativo do painel de funções; removido overrideredirect para evitar janelas ocultas.
+- Tooltips de widgets destruídos são removidos da lista, evitando acúmulo após abrir/fechar popups.
+- Aviso do perfil 14B ao selecionar esse perfil e ao iniciar com ele ativo.
+- Erros no microfone ao vivo retornam corretamente a interface ao estado inativo.
+
+DESEMPENHO E VOZ
+- Whisper, NumPy, SoundDevice, Pygame e Edge TTS são importados sob demanda.
+- O mixer de áudio não é inicializado na abertura do programa.
+- Captura usa fila limitada para evitar atraso crescente de áudio.
+- Whisper tenta CUDA/FP16 e possui fallback CPU/INT8.
+- Reprodução e arquivos temporários são encerrados/limpos no fechamento.
+
+CONFIGURAÇÃO E DADOS
+- Caminhos de configuração, banco e log independem da pasta de trabalho atual.
+- Modelos personalizados existentes não são sobrescritos pelos padrões.
+- Salvamento de config é atômico.
+- SQLite usa WAL, timeout, transações e conexões fechadas.
+- Bancos existentes não são apagados nem sobrescritos.
+
+PESQUISA E FERRAMENTAS
+- DDGS substitui a antiga interface duckduckgo_search.
+- Pesquisa entrega snippets/links e não afirma ler páginas completas.
+- Normalização do endereço Ollama trata URLs inválidas com fallback seguro.
+- Módulos auxiliares usam a configuração atual, não nomes inexistentes.
+
+PREPARAR
+- preparar.bat cria/reutiliza ambiente Python 3.13 x64.
+- Atualiza pip/setuptools/wheel e todas as dependências diretas e transitivas de requirements.txt.
+- Executa pip check, valida imports e sintaxe e roda testes automatizados.
+- Não baixa modelos LLM/Whisper nem componentes CUDA/cuDNN do sistema.
+
+LIMITES
+- Não foi possível executar uma sessão real da interface/áudio/CUDA neste
+  ambiente de construção. Esses caminhos precisam ser testados no Windows alvo.
+
+CORREÇÃO DE VOZ (CAPTURA E TRANSCRIÇÃO)
+- A parada da captura agora é solicitada por evento; a própria thread fecha o InputStream,
+  evitando encerramento concorrente do PortAudio/driver de áudio no Windows.
+- Trechos de fala em andamento são enviados para transcrição ao parar, em vez de descartados.
+- VAD mais sensível para microfones com sinal de menor amplitude.
+- Log periódico do nível RMS do microfone e do limiar de detecção para diagnóstico.
+- A interface só marca conversa ao vivo/captura manual como ativa após iniciar a thread.
+- Nova tentativa de captura é orientada quando a thread anterior ainda está finalizando.
+
+
+DETECÇÃO ADAPTATIVA DE HARDWARE (BASE INICIAL)
+- Novo módulo hardware.py detecta sistema, arquitetura, CPU, núcleos, RAM e GPUs NVIDIA/AMD/Intel.
+- A detecção é somente leitura e não instala drivers nem altera configurações do sistema.
+- O Whisper passa a oferecer modo Automático, CUDA manual e CPU manual.
+- No modo Automático, CTranslate2 é consultado antes de tentar inicializar CUDA; sem runtime CUDA, usa CPU/INT8.
+- Corrigido o fallback CUDA -> CPU quando a falha acontece ao finalizar a captura de voz.
+- Preparar e Diagnóstico exibem o hardware e o backend inicial recomendado.
+- Ollama mantém seu próprio gerenciamento de CUDA/ROCm/Vulkan; a Gac.IA não presume que a GPU detectada seja suportada por todos os motores.
+- AMD/Intel permanecem compatíveis com transcrição via CPU; aceleração direta dessas GPUs no Faster-Whisper não é prometida.
+
+
+INSTALADOR INTELIGENTE (PRIMEIRA VERSÃO)
+- Novo instalar.bat/instalador.ps1: procura Python 3.13 x64 e tenta instalá-lo pelo winget quando ausente.
+- Cria ambiente virtual isolado e preserva uma .venv incompatível em pasta de backup, sem apagá-la.
+- Instala/atualiza dependências, executa pip check, verificação de imports/sintaxe e testes automatizados.
+- Detecta hardware; em NVIDIA com nvidia-smi funcional, instala cuBLAS 12 e cuDNN 9 via wheels Python isolados no .venv.
+- Em AMD/Intel ou sem driver NVIDIA operacional, não baixa CUDA; o Whisper mantém fallback CPU/INT8.
+- Novo registro de diretórios DLL NVIDIA via os.add_dll_directory antes de importar CTranslate2, sem modificar PATH global do Windows.
+- Oferece instalar Ollama pelo winget quando não encontrado. Modelos LLM e Whisper continuam sob demanda para evitar downloads grandes sem consentimento.
+- iniciar.bat chama instalar.bat automaticamente se o ambiente virtual não existir.
+- Esta versão é um bootstrapper para Windows 10/11 x64; ainda não é um instalador EXE assinado nem oferece suporte nativo a Linux/macOS.
+
+
+[Inventário idempotente e preparação incremental]
+- Novo inventario_ambiente.py: inventaria pacotes, hardware, espaço livre, Ollama, modelos Ollama e caches Hugging Face sem alterar os dados.
+- O instalador reutiliza .venv Python 3.13 x64 válido mesmo que o Python global não esteja no PATH.
+- pip install sem --upgrade/eager: preserva pacotes já compatíveis e corrige apenas dependências ausentes/incompatíveis.
+- Runtime CUDA opcional é instalado apenas em NVIDIA com nvidia-smi funcional; não é removido em máquinas AMD/Intel.
+- Detecta Ollama em caminhos padrão do Windows e consulta o host configurado para listar modelos existentes.
+- Inventário Hugging Face reconhece caches existentes, incluindo espaço para futura integração de modelos de imagem.
+- Novos testes automatizados para inventário/cache.
+
+
+VERSÃO — AGENTE DE ARQUIVOS E DOCUMENTOS
+
+- Adicionado núcleo de agente com chamadas de ferramentas do Ollama e histórico da conversa.
+- Criados comandos /analise, /create, /codigo, /executar, /imagem e /ajuda, com sugestões ao digitar /.
+- Adicionado fluxo de anexos pela área Funções; anexos ativam automaticamente o agente.
+- ZIPs são extraídos para workspaces isolados, com bloqueio de Zip Slip, links simbólicos, pastas de ambiente/cache e limites de tamanho/quantidade.
+- Adicionadas ferramentas de listagem, leitura, pesquisa e gravação de arquivos de código/texto.
+- Adicionada leitura de DOCX, XLSX/XLSM, PPTX, PDF, CSV e TSV; edição de DOCX e XLSX/XLSM.
+- Adicionada execução autorizada de compileall/unittest, sem terminal arbitrário nem instalação automática de pacotes.
+- Alterações geram um ZIP de saída em data/exports, preservando os arquivos originais enviados.
+- Gerador de imagens conectado à API local do ComfyUI; requer instalação separada e checkpoint compatível.
+- Adicionadas dependências python-docx, openpyxl, python-pptx e pypdf.
+- Testes desta versão: 39 aprovados; compilação sintática dos módulos aprovada.
+
+
+MELHORIAS DE ESTABILIDADE E SEGURANCA
+- Protegida a atualização da lista de conversas contra widgets já destruídos.
+- Placeholder do campo de mensagem mantido estável durante anexos.
+- Backups versionados automáticos antes de substituir arquivos de texto e editar DOCX/XLSX pelo agente.
+- Limite global de chamadas de ferramentas por tarefa e reaproveitamento de resultados idênticos.
+- Adicionado teste automatizado para verificar restauração do conteúdo anterior por backup.
+- Desvinculado o estado que apontava para workspace antigo; os dados antigos permanecem preservados e o usuário deve anexar a versão atual para iniciar novo workspace.
+- Listagem/exportação do agente agora ignora diretórios internos de runtime para evitar analisar ou empacotar cópias antigas, backups e saídas geradas.
+
+
+CORREÇÃO DO CAMPO DE MENSAGEM (ENTER)
+- O placeholder do campo principal agora é configurado somente na criação do CTkEntry; a limpeza do campo não reconfigura repetidamente o placeholder.
+- O evento Enter é tratado por callback próprio e retorna "break", impedindo a propagação para os bindings padrão do Tk.
+- Após envio pelo campo, o foco é mantido/restaurado na entrada para permitir digitar a próxima mensagem sem clicar em outro controle.
+- Removidas reconfigurações redundantes do placeholder nos fluxos de anexos, envio e erro.
+- Compilação Python aprovada e 44 testes automatizados aprovados nesta revisão. A validação visual final ainda deve ser feita no Windows com CustomTkinter.
+
+
+PERSONALIZAÇÃO, HISTÓRICO E PESQUISA POR PERFIL
+- Configurações agora permitem Português/English, nome/apelido do usuário e cinco estilos de resposta; as preferências são persistidas em config.json.
+- O idioma escolhido orienta as respostas da IA e os principais elementos da interface, incluindo perfis, configurações, estados e ações mais utilizadas.
+- Clique com o botão direito em mensagens salvas para Fixar/Desafixar ou Apagar; Apagar é exibido em vermelho e exige confirmação.
+- Mensagens fixadas são persistidas no SQLite, identificadas visualmente e priorizadas no contexto do modelo; a migração da coluna é aditiva e preserva históricos anteriores.
+- Corrigida a ordem cronológica do histórico detalhado exibido na interface.
+- Pesquisa web habilitada para os três perfis: Leve até 2 fontes, Intermediário até 5 e Avançado até 8 em duas consultas complementares quando útil.
+- DDGS continua sendo importado sob demanda; o perfil Leve faz uma consulta focada e não carrega dependências de pesquisa na inicialização.
+- Resultados exibem URLs diretas e são marcados como trechos ainda não verificados independentemente; instruções do agente exigem distinção entre fatos, inferências e hipóteses.
+- Testes desta revisão: 51 aprovados; compileall aprovado. A interface gráfica ainda precisa de validação no Windows com CustomTkinter e Ollama reais.
+
+CORREÇÕES DE ESTABILIDADE — INTERFACE, HISTÓRICO E VOZ (02/11/2026)
+- Menu de contexto: o clique direito agora é vinculado recursivamente aos widgets Tk internos dos balões, incluindo Canvas/Label usados pelo CustomTkinter; as opções Fixar/Desafixar e Apagar continuam associadas ao ID e à sessão reais da mensagem.
+- Foco dos campos: removido o binding global de clique esquerdo que forçava o foco da janela principal. O Tk administra o foco nativamente; o campo de mensagem continua recebendo foco após envio pelo Enter.
+- Configurações: botão Salvar alterações permanece oculto enquanto os campos estão iguais ao último snapshot salvo; aparece ao detectar mudanças e desaparece após salvar ou reverter.
+- Sidebar: nome/apelido do usuário fica no canto inferior esquerdo e o atalho de configurações no lado direito.
+- Troca de conversas: cada reconstrução da área de chat incrementa uma geração visual; chunks de streaming, estados e aprovações de uma conversa antiga não são renderizados na conversa atual. Ao concluir uma resposta cuja visualização foi reconstruída, a interface recarrega o histórico persistido para evitar mensagens duplicadas ou incompletas.
+- Histórico: carregar conversa vazia também atualiza a lista; mensagens e ações de contexto permanecem ligadas à sessão e ao ID do banco.
+- Voz: estado de inicialização é definido antes de iniciar a thread, com callback de pronto/finalizado; uma tentativa é reagendada se a thread anterior ainda estiver terminando, evitando exigir um segundo clique.
+- Microfone ao vivo: VAD calibra o ruído ambiente, usa limiares distintos para início/fim da fala e mantém atualização lenta do piso de ruído. O modo manual continua enviando a fala ao parar.
+- Compatibilidade de áudio: quando o dispositivo não aceita 16 kHz, tenta a taxa nativa de entrada e reamostra para 16 kHz antes do Whisper.
+- Testes: 62 testes automatizados aprovados e compilação Python aprovada. Testes reais de interface, driver de microfone e Ollama ainda precisam ser executados no Windows de destino.
+- Callbacks de pronto, encerramento, erro e transcrição de voz agora carregam um identificador de geração; eventos atrasados de uma captura antiga não desligam nem poluem uma captura nova. A parada manual preserva a última transcrição capturada.
+
+
+ETAPA 4 — DISTRIBUIÇÃO MODULAR E GERENCIADOR (03/11/2026)
+- Dependências separadas por componente: núcleo/Office, pesquisa web, voz e aceleração NVIDIA opcional.
+- Gerenciador gráfico leve em Tkinter padrão, independente do CustomTkinter da aplicação.
+- Manifesto local de componentes para instalações incrementais; módulos desmarcados permanecem instalados e registrados.
+- Instalador valida Python 3.13 x64, ambiente virtual, imports, pip check e suíte de testes antes de registrar o estado.
+- Ambiente virtual incompatível é preservado em backup, sem remoção de dados, modelos, configurações ou workspaces.
+- Atualizada recomendação de ComfyUI Desktop para novos usuários Windows; instalação portátil anterior continua como caminho legado/avançado.
+- Corrigido critério de CUDA do Whisper: requer nvidia-smi funcional, inclusive ao reabrir o Manager em PC sem NVIDIA.
+- Ajustado relatório de disponibilidade de RAM/VRAM para não substituir zero por memória total.
+- Limitação conhecida: o instalador PowerShell e a GUI precisam de validação em Windows real; a suíte executada no ambiente de desenvolvimento não substitui esse teste.
+
+
+04/11/2026 — Migração da interface para PySide6
+- Janela principal migrada de CustomTkinter para widgets nativos PySide6/Qt; main.py inicia QApplication.
+- Gerenciador de componentes também migrado para PySide6; núcleo passou a declarar PySide6 como dependência obrigatória.
+- Layout desktop com sidebar recolhível, chat central, tema escuro/claro, perfil, composer e menu + de ferramentas categorizadas com ícones e descrições.
+- Controles compactos de anexos, microfone, Chat ao vivo, pesquisa web, preferências de fontes, Pensar mais, cancelar e enviar.
+- Preferências de fontes configuráveis (oficiais, científicas, notícias e sinalização de conteúdo antigo/sem data), respeitando o orçamento de resultados do perfil.
+- Mantidos módulos de conversas SQLite, agente, anexos, pesquisa, voz e criação/edição de documentos; arquivo da interface Tk anterior preservado somente em legacy/ para testes de regressão.
+- Atualizado diagnostico_layout.py para capturar geometria da janela Qt.
+- Testes automatizados e compilação Python documentados no relatório de migração; execução visual real no Windows ainda precisa ser confirmada.
+
+
+CORREÇÃO DE INICIALIZAÇÃO — DEPENDÊNCIA PYSIDE6 AUSENTE (04/11/2026)
+- Causa: iniciar.bat verificava apenas a existência de .venv\Scripts\python.exe; um ambiente virtual antigo podia existir sem a dependência PySide6 exigida pela nova interface.
+- iniciar.bat agora verifica PySide6.QtCore, PySide6.QtWidgets, requests e Pillow antes de importar main.py.
+- Se uma dependência do núcleo estiver ausente, o inicializador chama instalador.ps1 em modo Prepare com somente o componente core, instalando PySide6 na .venv local.
+- O instalador preserva os componentes opcionais já registrados e não altera Python global, Ollama, modelos, conversas, configurações ou workspaces.
+- O aplicativo só é iniciado depois de uma segunda verificação dos imports obrigatórios. Falhas de instalação interrompem a inicialização com orientação de diagnóstico.
+- main.py também apresenta mensagem clara quando é executado manualmente por um Python sem PySide6.
+- Adicionados testes de regressão para o cenário .venv existente sem PySide6. Resultado: 234 testes e 39 subtestes aprovados por unittest e 234 testes aprovados por python -m pytest.
+- A execução visual da interface e a instalação real dos wheels ainda precisam ser validadas no Windows do usuário.

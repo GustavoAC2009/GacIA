@@ -1,0 +1,34 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+.idea/
+
+# Conversas e memórias locais: nunca versionar/compartilhar por acidente.
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Logs e arquivos temporários.
+*.log
+*.tmp
+
+# Workspaces temporários, projetos transformados e imagens geradas localmente.
+data/workspaces/
+data/exports/
+data/generated_images/
+data/agent_state.json
+
+# Runtime opcional pesado do ComfyUI e ferramentas auxiliares baixadas sob demanda.
+runtime/
+
+# Preferências locais e artefatos de execução/distribuição.
+config.json
+data/backups/
+data/diagnostico_layout.json
+dist/
+.venv_backup_*/
+
+# Manifesto local da seleção de componentes instalada.
+.gacia-components.json

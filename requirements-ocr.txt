@@ -1,0 +1,3 @@
+# OCR opcional para PDFs digitalizados. Requer o mecanismo Tesseract instalado no sistema.
+pypdfium2>=5.14,<6
+pytesseract>=0.3.13,<0.4
