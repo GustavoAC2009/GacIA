@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QSize, QUrl
+from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot, QSize, QUrl, QThread
 from PySide6.QtGui import (QAction, QFont, QKeyEvent, QIcon, QKeySequence, QTextCursor,
                            QDesktopServices, QPixmap, QImage, QPainter, QColor, QPen)
 from PySide6.QtWidgets import (
@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QSizePolicy, QMenu, QFileDialog, QMessageBox, QDialog,
     QDialogButtonBox, QFormLayout, QComboBox, QCheckBox, QSpinBox, QGroupBox,
     QSplitter, QStackedWidget, QToolTip, QInputDialog, QPlainTextEdit,
-    QTabWidget, QListWidget, QListWidgetItem, QWidgetAction,
+    QTabWidget, QListWidget, QListWidgetItem, QWidgetAction, QProgressDialog,
 )
 
 from config import carregar_config, salvar_config, normalizar_host_ollama, MODELOS_PADRAO
@@ -110,6 +110,94 @@ class UiBridge(QObject):
     voice_ready = Signal(str, int)
     voice_finished = Signal(str, int)
     gpu_status = Signal(object)
+
+
+
+class UpdateDownloadWorker(QThread):
+    progress = Signal(int)
+    downloaded = Signal(str, str)
+    up_to_date = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, repository: str, channel: str, current_version: str, parent=None):
+        super().__init__(parent)
+        self.repository = repository
+        self.channel = channel
+        self.current_version = current_version
+
+    def run(self):
+        import hashlib
+        import tempfile
+
+        destination = None
+        try:
+            headers = {"Accept": "application/vnd.github+json", "User-Agent": "GacIA-Updater"}
+            api = f"https://api.github.com/repos/{self.repository}/releases"
+            response = requests.get(api + ("/latest" if self.channel != "development" else "?per_page=10"),
+                                    headers=headers, timeout=(8, 20))
+            response.raise_for_status()
+            if self.channel == "development":
+                releases = response.json()
+                release = next((item for item in releases if item.get("prerelease") and not item.get("draft")), None)
+                if release is None:
+                    raise RuntimeError("Ainda não há uma versão de desenvolvimento publicada.")
+            else:
+                release = response.json()
+
+            tag = str(release.get("tag_name", "")).strip()
+            if not re.fullmatch(r"v?\d+\.\d+\.\d+(?:[.-][A-Za-z0-9.-]+)?", tag):
+                raise RuntimeError("A versão publicada tem um identificador inválido.")
+            if tag.lstrip("v") == self.current_version.lstrip("v"):
+                self.up_to_date.emit(tag)
+                return
+
+            assets = {str(item.get("name", "")): item for item in release.get("assets", [])}
+            installer = assets.get("GacIA-Setup.exe")
+            checksum_asset = assets.get("GacIA-Setup.exe.sha256")
+            if not installer or not checksum_asset:
+                raise RuntimeError("Esta versão não tem instalador e checksum publicados. Atualize pelo GitHub Releases.")
+            checksum_response = requests.get(checksum_asset["browser_download_url"], headers=headers, timeout=(8, 20))
+            checksum_response.raise_for_status()
+            match = re.search(r"(?i)\b([0-9a-f]{64})\b", checksum_response.text)
+            if not match:
+                raise RuntimeError("O checksum SHA-256 da versão não é válido.")
+            expected_hash = match.group(1).lower()
+
+            folder = Path(tempfile.gettempdir()) / "GacIA-updates"
+            folder.mkdir(parents=True, exist_ok=True)
+            safe_tag = re.sub(r"[^A-Za-z0-9._-]", "_", tag)
+            destination = folder / f"GacIA-Setup-{safe_tag}.exe"
+            digest = hashlib.sha256()
+            downloaded = 0
+            with requests.get(installer["browser_download_url"], headers=headers, stream=True, timeout=(10, 60)) as download:
+                download.raise_for_status()
+                total = int(download.headers.get("Content-Length", 0) or 0)
+                with destination.open("wb") as output:
+                    for chunk in download.iter_content(chunk_size=256 * 1024):
+                        if self.isInterruptionRequested():
+                            raise InterruptedError("Download cancelado.")
+                        if not chunk:
+                            continue
+                        output.write(chunk)
+                        digest.update(chunk)
+                        downloaded += len(chunk)
+                        if total > 0:
+                            self.progress.emit(min(100, int(downloaded * 100 / total)))
+                        elif downloaded % (2 * 1024 * 1024) < len(chunk):
+                            self.progress.emit(-1)
+            if digest.hexdigest().lower() != expected_hash:
+                destination.unlink(missing_ok=True)
+                raise RuntimeError("A verificação SHA-256 falhou. O instalador foi descartado por segurança.")
+            self.progress.emit(100)
+            self.downloaded.emit(str(destination), tag)
+        except InterruptedError:
+            if destination:
+                destination.unlink(missing_ok=True)
+            self.failed.emit("Download cancelado.")
+        except Exception as error:
+            if destination:
+                destination.unlink(missing_ok=True)
+            self.failed.emit(str(error))
 
 
 class ComposerEdit(QTextEdit):
@@ -2140,29 +2228,89 @@ class GacIAApp(QMainWindow):
             return
         self.open_manager()
 
+
     def open_updates(self):
+        if getattr(self, "_update_worker", None) and self._update_worker.isRunning():
+            return
         try:
-            from atualizacoes import canal_atualizacoes, versao_atual, url_releases
+            from atualizacoes import canal_atualizacoes, repositorio_github, versao_atual
             current = versao_atual()
             channel = canal_atualizacoes()
-            releases_url = url_releases()
+            repository = repositorio_github()
         except Exception as error:
             QMessageBox.warning(self, "Atualizações", f"Não foi possível localizar as informações de versão: {error}")
             return
-        if not releases_url:
+        if not repository:
             QMessageBox.information(
                 self, "Atualizações",
-                f"Versão instalada: {current}. O repositório de releases ainda não foi configurado nesta instalação.",
+                f"Versão instalada: {current}. O repositório de releases não está configurado nesta instalação.",
             )
             return
-        QMessageBox.information(
-            self, "Atualizar Gac.IA",
-            f"Versão instalada: {current} ({'desenvolvimento' if channel == 'development' else 'estável'}).\n\n"
-            "A página de versões será aberta no navegador. Entre com uma conta autorizada, baixe GacIA-Setup.exe, "
-            "feche a Gac.IA e execute o instalador para atualizar. Conversas, configurações, modelos e dados locais são preservados.",
+
+        self.updates_btn.setEnabled(False)
+        self.updates_btn.setText("Verificando atualização…")
+        self._update_progress = QProgressDialog("Consultando as versões publicadas…", "Cancelar", 0, 100, self)
+        self._update_progress.setWindowTitle("Atualizar Gac.IA")
+        self._update_progress.setWindowModality(Qt.WindowModal)
+        self._update_progress.setMinimumDuration(0)
+        self._update_progress.canceled.connect(
+            lambda: self._update_worker.requestInterruption()
+            if getattr(self, "_update_worker", None) and self._update_worker.isRunning() else None
         )
-        if not QDesktopServices.openUrl(QUrl(releases_url)):
-            QMessageBox.warning(self, "Atualizações", "Não foi possível abrir o navegador. Link: " + releases_url)
+        worker = UpdateDownloadWorker(repository, channel, current, self)
+        self._update_worker = worker
+        worker.progress.connect(self._update_download_progress)
+        worker.downloaded.connect(self._update_downloaded)
+        worker.up_to_date.connect(self._update_is_current)
+        worker.failed.connect(self._update_failed)
+        worker.finished.connect(self._update_worker_finished)
+        worker.start()
+
+    def _update_download_progress(self, value: int):
+        if not getattr(self, "_update_progress", None):
+            return
+        if value < 0:
+            self._update_progress.setRange(0, 0)
+            self._update_progress.setLabelText("Baixando instalador…")
+        else:
+            self._update_progress.setRange(0, 100)
+            self._update_progress.setLabelText("Baixando e verificando o instalador…")
+            self._update_progress.setValue(value)
+
+    def _update_downloaded(self, installer_path: str, tag: str):
+        if getattr(self, "_update_progress", None):
+            self._update_progress.close()
+        answer = QMessageBox.question(
+            self, "Atualização pronta",
+            f"A versão {tag} foi baixada e verificada. Deseja abrir o instalador agora? "
+            "A Gac.IA será fechada para concluir a atualização.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if answer == QMessageBox.Yes:
+            try:
+                if os.name == "nt":
+                    os.startfile(installer_path)
+                else:
+                    import subprocess
+                    subprocess.Popen([installer_path], close_fds=True)
+                QTimer.singleShot(350, self.close)
+            except Exception as error:
+                QMessageBox.warning(self, "Atualização", f"Não foi possível iniciar o instalador: {error}")
+
+    def _update_is_current(self, tag: str):
+        QMessageBox.information(self, "Atualizações", f"A Gac.IA já está na versão mais recente ({tag}).")
+
+    def _update_failed(self, message: str):
+        if message != "Download cancelado.":
+            QMessageBox.warning(self, "Atualizações", f"Não foi possível baixar a atualização.\n\n{message}")
+
+    def _update_worker_finished(self):
+        if getattr(self, "_update_progress", None):
+            self._update_progress.close()
+            self._update_progress = None
+        self.updates_btn.setEnabled(True)
+        self.updates_btn.setText("⬆  Atualizar Gac.IA")
+        self._update_worker = None
 
     def open_settings(self):
         dialog = SettingsDialog(self.config_data, self)
