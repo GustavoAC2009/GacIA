@@ -504,39 +504,77 @@ class ChatTask:
             response_parts = []
             metric = {}
             first_token_ms = None
+            memory_retry = False
             with requests.Session() as session:
-                with session.post(
-                    f"{host}/api/chat", json=payload,
-                    headers={"Accept": "application/x-ndjson", "Content-Type": "application/json"},
-                    stream=True, timeout=(5, 240),
-                ) as response:
-                    with self.response_lock:
-                        self.active_response = response
-                    response.raise_for_status()
-                    for line in response.iter_lines(chunk_size=128, decode_unicode=True):
-                        if self.cancel_event.is_set():
-                            break
-                        if not line:
-                            continue
-                        if isinstance(line, bytes):
-                            line = line.decode("utf-8", errors="replace")
+                while True:
+                    try:
+                        with session.post(
+                            f"{host}/api/chat", json=payload,
+                            headers={"Accept": "application/x-ndjson", "Content-Type": "application/json"},
+                            stream=True, timeout=(5, 240),
+                        ) as response:
+                            with self.response_lock:
+                                self.active_response = response
+                            try:
+                                response.raise_for_status()
+                                for line in response.iter_lines(chunk_size=128, decode_unicode=True):
+                                    if self.cancel_event.is_set():
+                                        break
+                                    if not line:
+                                        continue
+                                    if isinstance(line, bytes):
+                                        line = line.decode("utf-8", errors="replace")
+                                    try:
+                                        data = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if data.get("error"):
+                                        raise RuntimeError(f"Ollama: {data['error']}")
+                                    content = (data.get("message") or {}).get("content", "")
+                                    if content:
+                                        if first_token_ms is None:
+                                            first_token_ms = int((time.perf_counter() - request_started) * 1000)
+                                        response_parts.append(content)
+                                        self.bridge.stream.emit(self.request_id, self.session_id, content)
+                                    if data.get("done"):
+                                        metric = data
+                                        break
+                            finally:
+                                with self.response_lock:
+                                    self.active_response = None
+                        break
+                    except requests.exceptions.HTTPError as error:
+                        failed_response = getattr(error, "response", None)
+                        detail = ""
                         try:
-                            data = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        if data.get("error"):
-                            raise RuntimeError(f"Ollama: {data['error']}")
-                        content = (data.get("message") or {}).get("content", "")
-                        if content:
-                            if first_token_ms is None:
-                                first_token_ms = int((time.perf_counter() - request_started) * 1000)
-                            response_parts.append(content)
-                            self.bridge.stream.emit(self.request_id, self.session_id, content)
-                        if data.get("done"):
-                            metric = data
-                            break
-                    with self.response_lock:
-                        self.active_response = None
+                            detail = failed_response.text.casefold() if failed_response is not None else ""
+                        except Exception:
+                            pass
+                        memory_markers = (
+                            "out of memory", "not enough memory", "insufficient memory",
+                            "failed to allocate", "cuda error", "cudamalloc",
+                            "compute buffers", "cuda0 buffer",
+                        )
+                        is_gpu_oom = (
+                            getattr(failed_response, "status_code", None) == 500
+                            and any(marker in detail for marker in memory_markers)
+                        )
+                        if memory_retry or not is_gpu_oom or response_parts:
+                            raise
+                        memory_retry = True
+                        payload["options"]["num_ctx"] = min(
+                            int(payload["options"].get("num_ctx", 4096)), 2048
+                        )
+                        payload["options"]["num_batch"] = 128
+                        payload["keep_alive"] = "0"
+                        LOGGER.warning(
+                            "Ollama GPU OOM; retrying once with reduced context/batch model=%s profile=%s",
+                            model, profile,
+                        )
+                        self._emit_status(
+                            "working",
+                            "A GPU ficou sem memória. Tentando uma vez com contexto e lote menores…",
+                        )
             if self.cancel_event.is_set():
                 return
             answer = "".join(response_parts).strip() or "Não foi possível obter uma resposta do modelo."
