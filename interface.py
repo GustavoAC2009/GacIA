@@ -116,14 +116,15 @@ class UiBridge(QObject):
 class UpdateDownloadWorker(QThread):
     progress = Signal(int)
     downloaded = Signal(str, str)
-    up_to_date = Signal(str)
+    up_to_date = Signal(str, str, bool)
     failed = Signal(str)
 
-    def __init__(self, repository: str, channel: str, current_version: str, parent=None):
+    def __init__(self, repository: str, channel: str, current_version: str, reinstall: bool = False, parent=None):
         super().__init__(parent)
         self.repository = repository
         self.channel = channel
         self.current_version = current_version
+        self.reinstall = bool(reinstall)
 
     def run(self):
         import hashlib
@@ -147,9 +148,15 @@ class UpdateDownloadWorker(QThread):
             tag = str(release.get("tag_name", "")).strip()
             if not re.fullmatch(r"v?\d+\.\d+\.\d+(?:[.-][A-Za-z0-9.-]+)?", tag):
                 raise RuntimeError("A versão publicada tem um identificador inválido.")
-            if tag.lstrip("v") == self.current_version.lstrip("v"):
-                self.up_to_date.emit(tag)
-                return
+            from atualizacoes import comparar_versoes
+            comparison = comparar_versoes(self.current_version, tag)
+            if comparison is not None and comparison >= 0:
+                if comparison > 0 or not self.reinstall:
+                    self.up_to_date.emit(tag, self.current_version, comparison == 0)
+                    return
+            elif self.reinstall:
+                raise RuntimeError("Não é possível reinstalar: não foi possível comparar a versão instalada.")
+
 
             assets = {str(item.get("name", "")): item for item in release.get("assets", [])}
             installer = assets.get("GacIA-Setup.exe")
@@ -2229,7 +2236,7 @@ class GacIAApp(QMainWindow):
         self.open_manager()
 
 
-    def open_updates(self):
+    def open_updates(self, reinstall: bool = False):
         if getattr(self, "_update_worker", None) and self._update_worker.isRunning():
             return
         try:
@@ -2257,7 +2264,7 @@ class GacIAApp(QMainWindow):
             lambda: self._update_worker.requestInterruption()
             if getattr(self, "_update_worker", None) and self._update_worker.isRunning() else None
         )
-        worker = UpdateDownloadWorker(repository, channel, current, self)
+        worker = UpdateDownloadWorker(repository, channel, current, reinstall, self)
         self._update_worker = worker
         worker.progress.connect(self._update_download_progress)
         worker.downloaded.connect(self._update_downloaded)
@@ -2297,8 +2304,21 @@ class GacIAApp(QMainWindow):
             except Exception as error:
                 QMessageBox.warning(self, "Atualização", f"Não foi possível iniciar o instalador: {error}")
 
-    def _update_is_current(self, tag: str):
-        QMessageBox.information(self, "Atualizações", f"A Gac.IA já está na versão mais recente ({tag}).")
+    def _update_is_current(self, tag: str, current: str, same_version: bool):
+        if same_version:
+            answer = QMessageBox.question(
+                self, "Gac.IA atualizada",
+                f"A versão instalada ({current}) já é a mais recente ({tag}). Deseja baixar novamente "
+                "e reinstalar essa mesma versão?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            self._update_reinstall_requested = answer == QMessageBox.Yes
+        else:
+            QMessageBox.information(
+                self, "Gac.IA atualizada",
+                f"A versão instalada ({current}) é mais recente que a versão publicada ({tag}). "
+                "Nenhum downgrade foi feito.",
+            )
 
     def _update_failed(self, message: str):
         if message != "Download cancelado.":
@@ -2308,9 +2328,13 @@ class GacIAApp(QMainWindow):
         if getattr(self, "_update_progress", None):
             self._update_progress.close()
             self._update_progress = None
+        reinstall = bool(getattr(self, "_update_reinstall_requested", False))
+        self._update_reinstall_requested = False
         self.updates_btn.setEnabled(True)
         self.updates_btn.setText("⬆  Atualizar Gac.IA")
         self._update_worker = None
+        if reinstall:
+            QTimer.singleShot(0, lambda: self.open_updates(reinstall=True))
 
     def open_settings(self):
         dialog = SettingsDialog(self.config_data, self)
