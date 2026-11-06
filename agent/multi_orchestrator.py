@@ -716,7 +716,7 @@ class MultiAgentCoordinator:
             f"Pedido do usuário: {prompt_clean}\n"
             "Requisitos: estrutura didática com progressão lógica; capa, desenvolvimento e conclusão; "
             "títulos específicos; máximo de 4 a 5 pontos curtos por slide; conteúdo substancial mas conciso; "
-            "varie layouts quando fizer sentido; não invente estatísticas, nomes, citações ou fontes; "
+            "varie layouts quando fizer sentido; se o pedido não definir visual, use tema modern, proporção 16:9, design profissional e cores adequadas ao assunto sem perguntar; não invente estatísticas, nomes, citações ou fontes; "
             "notas do apresentador podem aprofundar o conteúdo. Prefira layouts, formas e tabelas nativas. "
             + ("O usuário pediu imagens: escolha 2 a 4 slides que realmente se beneficiem de recursos visuais; para cada um, preencha image_query e image_prompt. A busca de imagens online é o padrão (Google Images oficial se configurado, com alternativa no Wikimedia Commons); geração local só se o usuário pedir explicitamente imagens geradas ou ambas as fontes. Mantenha image_alt conciso, não mostre URLs/Markdown de imagem no texto dos slides e nunca coloque texto dentro da imagem. Se busca não achar imagem, deixe sem imagem e registre a limitação nas notas.\n" if wants_visuals else "Não adicione imagens sem necessidade.\n")
             + "Se imagens locais anexadas estiverem disponíveis, use apenas os caminhos exatos listados a seguir; não invente caminhos. Se a pesquisa fornecida "
