@@ -45,33 +45,41 @@ _cached_status: GPUStatus | None = None
 _cache_ttl = 8.0
 
 
-def serialize_gpu_task(func):
-    """Serializa trabalhos locais e deixa a GPU esfriar antes de iniciar uma carga."""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with GPU_TASK_LOCK:
-            status = get_gpu_status(refresh=True)
-            if status is not None:
-                temperatures = [value for value in (status.temperature_c, status.max_temperature_c) if value is not None]
-                temperature = max(temperatures) if temperatures else None
-                safe_limit = min(75, status.max_operating_temp_c - 15) if status.max_operating_temp_c else 75
-                if temperature is not None and temperature >= safe_limit:
-                    status_callback = kwargs.get("status_callback")
-                    owner = args[0] if args else None
-                    if not callable(status_callback) and callable(getattr(owner, "_emit_status", None)):
-                        status_callback = lambda message: owner._emit_status("warning", message)
-                    cancel_callback = kwargs.get("cancel_callback")
-                    if not callable(cancel_callback) and getattr(owner, "cancel_event", None) is not None:
-                        cancel_callback = owner.cancel_event.is_set
-                    ready, reason = wait_for_gpu_resources(
-                        purpose=func.__name__, min_free_mb=0, max_wait_seconds=900,
-                        poll_seconds=10, status_callback=status_callback,
-                        cancel_callback=cancel_callback,
-                    )
-                    if not ready:
-                        raise RuntimeError(reason)
-            return func(*args, **kwargs)
-    return wrapper
+def serialize_gpu_task(func=None, *, wait_if_hot: bool = True):
+    """Serializa tarefas de GPU e, por padrão, espera a placa esfriar.
+
+    Tarefas com fallback seguro para CPU podem desativar a espera e decidir o
+    backend por conta própria. Isso evita bloquear a interface/instalação por
+    até 15 minutos quando, por exemplo, o Whisper pode simplesmente usar CPU.
+    """
+    def decorate(task):
+        @wraps(task)
+        def wrapper(*args, **kwargs):
+            with GPU_TASK_LOCK:
+                if wait_if_hot:
+                    status = get_gpu_status(refresh=True)
+                    if status is not None:
+                        temperatures = [value for value in (status.temperature_c, status.max_temperature_c) if value is not None]
+                        temperature = max(temperatures) if temperatures else None
+                        safe_limit = min(75, status.max_operating_temp_c - 15) if status.max_operating_temp_c else 75
+                        if temperature is not None and temperature >= safe_limit:
+                            status_callback = kwargs.get("status_callback")
+                            owner = args[0] if args else None
+                            if not callable(status_callback) and callable(getattr(owner, "_emit_status", None)):
+                                status_callback = lambda message: owner._emit_status("warning", message)
+                            cancel_callback = kwargs.get("cancel_callback")
+                            if not callable(cancel_callback) and getattr(owner, "cancel_event", None) is not None:
+                                cancel_callback = owner.cancel_event.is_set
+                            ready, reason = wait_for_gpu_resources(
+                                purpose=task.__name__, min_free_mb=0, max_wait_seconds=900,
+                                poll_seconds=10, status_callback=status_callback,
+                                cancel_callback=cancel_callback,
+                            )
+                            if not ready:
+                                raise RuntimeError(reason)
+                return task(*args, **kwargs)
+        return wrapper
+    return decorate(func) if func is not None else decorate
 
 
 def _query_nvidia_smi(timeout: float = 1.5) -> GPUStatus | None:

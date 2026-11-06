@@ -288,7 +288,7 @@ class GerenciadorVoz:
         LOGGER.info("Whisper carregado na CPU (INT8).")
         return modelo
 
-    @serialize_gpu_task
+    @serialize_gpu_task(wait_if_hot=False)
     def _carregar_whisper(self):
         if self.modelo_whisper is not None:
             return self.modelo_whisper
@@ -304,21 +304,14 @@ class GerenciadorVoz:
             return self._criar_modelo_cpu()
 
         # Mesmo em CUDA explicitamente selecionado, não iniciar uma segunda
-        # carga se a placa já estiver em condição térmica/VRAM crítica.
+        # carga se a placa estiver quente, ocupada ou com pouca VRAM. Whisper
+        # tem fallback seguro para CPU; não deve esperar a GPU por vários minutos.
         if self.device_preferido == "cuda":
             try:
-                from resource_manager import get_gpu_status
+                from resource_manager import get_gpu_status, whisper_backend_decision
                 status = get_gpu_status(refresh=True)
-                if status is not None and (
-                    (status.temperature_c is not None and status.temperature_c >= 85)
-                    or (status.utilization_percent is not None and status.utilization_percent >= 95)
-                    or (status.memory_free_mb is not None and status.memory_free_mb < 1500)
-                ):
-                    motivo = (
-                        f"temperatura {status.temperature_c} °C" if status.temperature_c is not None and status.temperature_c >= 85
-                        else f"utilização {status.utilization_percent}%" if status.utilization_percent is not None and status.utilization_percent >= 95
-                        else f"VRAM livre {status.memory_free_mb} MB"
-                    )
+                backend, motivo = whisper_backend_decision(status)
+                if backend != "cuda":
                     LOGGER.warning("CUDA solicitado para Whisper, mas GPU está sob carga (%s); usando CPU INT8.", motivo)
                     return self._criar_modelo_cpu()
             except Exception:

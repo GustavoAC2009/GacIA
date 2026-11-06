@@ -2,7 +2,8 @@
 param(
     [ValidateSet('Install', 'Prepare', 'Update', 'Status')]
     [string]$Mode = 'Install',
-    [string]$Components = ''
+    [string]$Components = '',
+    [switch]$RunTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -261,10 +262,15 @@ try {
     Invoke-Python $VenvPython @('-m','pip','check')
     Invoke-Python $VenvPython @('preparar_verificar.py','--components',($selected -join ','))
 
-    Write-Stage '6/6 — TESTES AUTOMATIZADOS E REGISTRO'
-    Invoke-Python $VenvPython @('-m','unittest','discover','-s','tests','-v')
-    # O manifesto é atualizado somente depois que instalação, imports, pip check
-    # e testes terminaram corretamente.
+    Write-Stage '6/6 — REGISTRO DA INSTALAÇÃO'
+    if ($RunTests) {
+        Write-Host 'Executando a suíte automatizada solicitada pelo mantenedor...'
+        Invoke-Python $VenvPython @('-m','unittest','discover','-s','tests','-v')
+    } else {
+        Write-Host 'Testes automatizados de desenvolvimento foram ignorados nesta instalação.' -ForegroundColor DarkGray
+    }
+    # O manifesto só é atualizado depois da instalação, pip check e validação
+    # de imports dos componentes selecionados.
     Save-ComponentManifest $selected $VenvPython
 
     Write-Stage 'OLLAMA — MOTOR DE MODELOS'

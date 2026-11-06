@@ -116,6 +116,11 @@ confiáveis e podem estar incompletos, indisponíveis ou desatualizados.
 .venv\Scripts\python.exe empacotar_distribuicao.py
 ```
 
+Os testes automatizados são ferramentas de desenvolvimento e não são executados
+durante a instalação ou preparação normal. O instalador valida os imports dos
+componentes selecionados e `pip check`; para solicitar a suíte completa
+manualmente, execute `instalador.ps1` com `-RunTests`.
+
 O verificador compila somente o código ativo e ignora workspaces/importações e
 pastas de runtime; a compilação é feita em memória e não cria `__pycache__`.
 A validação automatizada não substitui um teste no Windows com Ollama,
