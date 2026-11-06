@@ -9,6 +9,8 @@ import queue
 import re
 import tempfile
 import threading
+import time
+from urllib.parse import urlsplit
 from collections import deque
 from typing import Callable, Optional
 from resource_manager import serialize_gpu_task
@@ -28,6 +30,9 @@ class GerenciadorVoz:
         modelo_whisper: str = "small",
         device_preferido: str = "auto",
         language: str = "pt-BR",
+        ollama_host: str = "http://localhost:11434",
+        ollama_model: str | None = None,
+        allow_ollama_unload: bool = True,
     ):
         self.language = "en" if str(language).lower().startswith("en") else "pt"
         if self.language == "en":
@@ -38,6 +43,9 @@ class GerenciadorVoz:
             self.voz_masculina = "pt-BR-AntonioNeural"
         self.modelo_whisper_nome = str(modelo_whisper or "small")
         self.device_preferido = device_preferido if device_preferido in {"auto", "cuda", "cpu"} else "auto"
+        self.ollama_host = str(ollama_host or "http://localhost:11434").rstrip("/")
+        self.ollama_model = str(ollama_model or "").strip()
+        self.allow_ollama_unload = bool(allow_ollama_unload)
 
         self.modelo_whisper = None
         self.whisper_device = "não carregado"
@@ -275,6 +283,7 @@ class GerenciadorVoz:
                 self._sapi_cancel_event = None
 
     def _criar_modelo_cpu(self):
+        self._preparar_ram_para_whisper()
         self._carregar_dependencias_whisper()
         modelo = self._WhisperModel(
             self.modelo_whisper_nome,
@@ -288,12 +297,60 @@ class GerenciadorVoz:
         LOGGER.info("Whisper carregado na CPU (INT8).")
         return modelo
 
+    def _preparar_ram_para_whisper(self):
+        """Evita tentar carregar Whisper small quando a RAM disponível é crítica."""
+        try:
+            from hardware import memoria_disponivel_gb
+            ram_livre = memoria_disponivel_gb()
+        except Exception:
+            LOGGER.debug("Não foi possível medir RAM antes do Whisper.", exc_info=True)
+            return
+        if ram_livre is None or ram_livre >= 2.5:
+            return
+
+        # O small INT8 já usa cerca de 1.5 GB em uma medição do projeto
+        # faster-whisper. Reserve margem para o runtime, o áudio e o Windows.
+        LOGGER.warning("Pouca RAM livre para Whisper (%s GB); tentando liberar o Ollama local ocioso.", ram_livre)
+        partes = urlsplit(self.ollama_host)
+        host_local = (partes.hostname or "").casefold() in {"localhost", "127.0.0.1", "::1"}
+        if self.allow_ollama_unload and host_local and self.ollama_model:
+            try:
+                import requests
+                response = requests.get(self.ollama_host + "/api/ps", timeout=(1.0, 1.5))
+                response.raise_for_status()
+                dados = response.json()
+                modelos_ativos = dados.get("models", []) if isinstance(dados, dict) else []
+                ativo = any(
+                    str(item.get("name") or item.get("model") or "").strip() == self.ollama_model
+                    for item in modelos_ativos if isinstance(item, dict)
+                )
+                if ativo:
+                    requests.post(
+                        self.ollama_host + "/api/generate",
+                        json={"model": self.ollama_model, "prompt": "", "stream": False, "keep_alive": 0},
+                        timeout=(1.0, 8.0),
+                    ).raise_for_status()
+                    LOGGER.info("Modelo Ollama ocioso descarregado antes de carregar Whisper para liberar RAM.")
+                    limite = time.monotonic() + 5.0
+                    while time.monotonic() < limite:
+                        time.sleep(0.25)
+                        ram_livre = memoria_disponivel_gb()
+                        if ram_livre is not None and ram_livre >= 2.5:
+                            break
+            except Exception as erro:
+                LOGGER.warning("Não foi possível liberar o modelo Ollama antes do Whisper: %s", erro)
+
+        if ram_livre is not None and ram_livre < 2.5:
+            raise RuntimeError(
+                f"Há apenas {ram_livre:.1f} GB de RAM disponível; reserve ao menos 2,5 GB para carregar o Whisper {self.modelo_whisper_nome}. "
+                "Feche programas ou modelos locais em uso e tente novamente."
+            )
+
     @serialize_gpu_task(wait_if_hot=False)
     def _carregar_whisper(self):
         if self.modelo_whisper is not None:
             return self.modelo_whisper
 
-        self._carregar_dependencias_whisper()
         LOGGER.info(
             "Carregando Whisper (%s) no dispositivo preferido: %s",
             self.modelo_whisper_nome,
@@ -341,6 +398,7 @@ class GerenciadorVoz:
                 return self._criar_modelo_cpu()
 
         try:
+            self._carregar_dependencias_whisper()
             modelo = self._WhisperModel(self.modelo_whisper_nome, device="cuda", compute_type="float16")
             self.modelo_whisper = modelo
             self.whisper_device = "cuda"
@@ -595,7 +653,13 @@ class GerenciadorVoz:
             LOGGER.exception("Erro no sistema de reconhecimento de voz.")
             if callable(callback_erro) and not self._escuta_stop.is_set():
                 try:
-                    callback_erro(str(erro))
+                    mensagem = str(erro).strip()
+                    if isinstance(erro, MemoryError) or not mensagem:
+                        mensagem = (
+                            "A RAM ficou insuficiente ao carregar o Whisper. Feche programas ou modelos locais, "
+                            "aguarde alguns segundos e tente novamente."
+                        )
+                    callback_erro(mensagem)
                 except Exception:
                     LOGGER.exception("Erro no callback de falha de voz.")
         finally:
@@ -611,6 +675,14 @@ class GerenciadorVoz:
                     pass
             if self._audio_stream is stream:
                 self._audio_stream = None
+            # A sessão de voz terminou; libera Whisper para o modelo de conversa,
+            # que pode precisar da mesma RAM/VRAM. Ele será recarregado na próxima sessão.
+            try:
+                self.modelo_whisper = None
+                gc.collect()
+                LOGGER.info("Whisper descarregado após encerrar a sessão de voz para liberar memória.")
+            except Exception:
+                LOGGER.debug("Não foi possível liberar o Whisper após encerrar a sessão.", exc_info=True)
             LOGGER.info("Captura de áudio encerrada.")
             if callable(callback_finalizado):
                 try:

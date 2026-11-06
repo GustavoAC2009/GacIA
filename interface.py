@@ -251,6 +251,10 @@ class ChatTask:
         model = str((config.get("modelos") or MODELOS_PADRAO).get(profile) or MODELOS_PADRAO["intermediario"])
         host = normalizar_host_ollama(config.get("ollama_host"))
         keep_alive = str(config.get("ollama_keep_alive", "2m"))
+        if config.get("modo_ao_vivo"):
+            # Em conversa contínua, o Whisper fica residente. Descarregar o
+            # LLM após cada resposta reduz picos combinados de RAM e VRAM.
+            keep_alive = "0"
         language = config.get("linguagem", "pt-BR")
         web_profile = config.get("perfil_pesquisa_web", profile)
         if web_profile not in {"rapido", "intermediario", "top"}:
@@ -342,8 +346,11 @@ class ChatTask:
             if self.web_enabled:
                 self._emit_status("searching", "Pesquisando na web…")
                 try:
-                    from pesquisa_web import pesquisar_web, formatar_resultados, ler_paginas_publicas, limite_do_perfil
-                    results = self._collect_web_sources(prompt, web_profile, language, source_preferences)
+                    from pesquisa_web import pesquisar_web_com_preferencias, formatar_resultados, ler_paginas_publicas
+                    results = pesquisar_web_com_preferencias(
+                        prompt, perfil=web_profile, idioma=language,
+                        preferencias=source_preferences,
+                    )
                     if results:
                         page_count = {"rapido": 0, "intermediario": 1, "top": 2}.get(web_profile, 1)
                         if page_count:
@@ -457,10 +464,32 @@ class ChatTask:
             code = getattr(response, "status_code", "?")
             detail = ""
             try:
-                detail = response.text.strip() if response is not None else ""
+                detail = response.text.strip()[:1600] if response is not None else ""
             except Exception:
                 pass
-            self.bridge.failed.emit(self.request_id, self.session_id, f"Erro HTTP {code}: {detail or error}")
+            if str(code).isdigit() and int(code) >= 500:
+                LOGGER.error("Ollama HTTP %s model=%s profile=%s detail=%s", code, model, profile, detail or str(error))
+            texto_erro = detail or str(error)
+            if str(code) == "500" and any(
+                marcador in texto_erro.casefold()
+                for marcador in (
+                    "out of memory", "not enough memory", "insufficient memory",
+                    "requires more system memory", "failed to allocate", "cuda error",
+                )
+            ):
+                mensagem = (
+                    "O Ollama ficou sem memória para responder com este modelo. "
+                    "Selecione o perfil Leve, feche programas que usam RAM/VRAM e tente novamente."
+                )
+                if detail:
+                    mensagem += "\nDetalhe do Ollama: " + detail[:600]
+            elif str(code) == "500":
+                mensagem = "O Ollama retornou um erro interno (HTTP 500). O detalhe técnico foi salvo no gacia.log."
+                if detail:
+                    mensagem += "\nDetalhe: " + detail[:600]
+            else:
+                mensagem = f"Erro HTTP {code}: {texto_erro}"
+            self.bridge.failed.emit(self.request_id, self.session_id, mensagem)
         except Exception as error:
             LOGGER.exception("Erro no processamento da solicitação.")
             self.bridge.failed.emit(self.request_id, self.session_id, str(error))
@@ -1340,6 +1369,9 @@ class GacIAApp(QMainWindow):
         self._update_user_badge()
         self._update_status("Pronto", "success")
         self._restore_first_run()
+        if (self.config_data.get("configuracao_inicial_concluida", False)
+                and not self.config_data.get("configuracao_componentes_concluida", False)):
+            QTimer.singleShot(700, self._open_first_resource_setup)
         self.gpu_monitor = GPUStatusMonitor(callback=self._bridge.gpu_status.emit, interval=20.0)
         self.gpu_monitor.start()
 
@@ -1430,7 +1462,7 @@ class GacIAApp(QMainWindow):
         self.settings_btn.setObjectName("navButton")
         self.settings_btn.clicked.connect(self.open_settings)
         bottom_layout.addWidget(self.settings_btn)
-        self.manager_btn = QPushButton("▦  Gerenciar recursos")
+        self.manager_btn = QPushButton("▦  Recursos e downloads")
         self.manager_btn.setObjectName("navButton")
         self.manager_btn.clicked.connect(self.open_manager)
         bottom_layout.addWidget(self.manager_btn)
@@ -2098,8 +2130,15 @@ class GacIAApp(QMainWindow):
             else:
                 import subprocess, sys
                 subprocess.Popen([sys.executable, str(BASE_DIR / "gerenciador.py")], cwd=str(BASE_DIR))
+            self.config_data["configuracao_componentes_concluida"] = True
+            salvar_config(self.config_data)
         except (OSError, AttributeError) as error:
             QMessageBox.warning(self, "Gerenciador", f"Não foi possível abrir o gerenciador: {error}")
+
+    def _open_first_resource_setup(self):
+        if self.closing:
+            return
+        self.open_manager()
 
     def open_updates(self):
         try:
@@ -2138,6 +2177,8 @@ class GacIAApp(QMainWindow):
             self.status_model.setText(self._current_model_label())
             self._update_user_badge()
             self._apply_theme()
+            if not self.config_data.get("configuracao_componentes_concluida", False):
+                QTimer.singleShot(700, self._open_first_resource_setup)
             self._update_status("Configurações salvas", "success")
 
     def _set_theme(self, theme: str):
@@ -2418,6 +2459,11 @@ class GacIAApp(QMainWindow):
                 modelo_whisper=self.config_data.get("whisper_model", "small"),
                 device_preferido=self.config_data.get("whisper_device", "auto"),
                 language=self.config_data.get("linguagem", "pt-BR"),
+                ollama_host=self.config_data.get("ollama_host", "http://localhost:11434"),
+                ollama_model=(self.config_data.get("modelos") or {}).get(
+                    self.config_data.get("perfil_ativo", "intermediario"), ""
+                ),
+                allow_ollama_unload=not self.busy,
             )
             return self.voice
         except Exception as error:

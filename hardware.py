@@ -157,6 +157,11 @@ def _memoria_total_gb() -> float | None:
     return _memoria_status_gb()[0]
 
 
+def memoria_disponivel_gb() -> float | None:
+    """RAM física disponível no momento, para validar cargas locais pesadas."""
+    return _memoria_status_gb()[1]
+
+
 def _vram_disponivel_nvidia() -> dict[str, int]:
     """Consulta VRAM total/livre por GPU NVIDIA; outras APIs não são presumidas."""
     smi = shutil.which("nvidia-smi")

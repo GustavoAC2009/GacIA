@@ -69,13 +69,6 @@ function Invoke-Python([string]$Exe, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "Comando Python falhou (código $LASTEXITCODE): $($Arguments -join ' ')" }
 }
 
-function Ask-YesNo([string]$Question, [bool]$DefaultYes = $false) {
-    $hint = if ($DefaultYes) { 'S/n' } else { 's/N' }
-    $answer = Read-Host "$Question [$hint]"
-    if ([string]::IsNullOrWhiteSpace($answer)) { return $DefaultYes }
-    return ($answer.Trim() -match '^(s|sim|y|yes)$')
-}
-
 function Get-HardwareSummary([string]$Exe) {
     $raw = & $Exe -c "import json,hardware; print(json.dumps(hardware.detectar_hardware(), ensure_ascii=False))" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $raw) { throw 'Não foi possível detectar o hardware.' }
@@ -119,22 +112,10 @@ function Select-Components([string]$Raw, [string]$Action, $Hardware, [bool]$Nvid
     } elseif ($Action -in @('Prepare', 'Update')) {
         $selected = @((Get-ComponentsFromManifest $VenvPython).Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
     } else {
-        Write-Stage 'SELEÇÃO DOS COMPONENTES'
-        Write-Host 'O núcleo (interface, comunicação com Ollama e suporte básico a imagens) é obrigatório.'
+        Write-Stage 'NÚCLEO BÁSICO'
+        Write-Host 'Será instalado somente o necessário para abrir a Gac.IA.'
+        Write-Host 'Na primeira abertura, uma tela visual permite escolher documentos, pesquisa, voz e outros recursos.'
         $selected = @('core')
-        if (Ask-YesNo 'Instalar ferramentas Office (Word, Excel, PowerPoint e PDF)?' $true) { $selected += 'office' }
-        if (Ask-YesNo 'Instalar OCR para PDFs digitalizados? (também exige o mecanismo Tesseract do sistema)' $false) { $selected += 'ocr' }
-        if (Ask-YesNo 'Instalar pesquisa na web?' $true) { $selected += 'web' }
-        # Voz adiciona bibliotecas nativas e o modelo Whisper será baixado depois.
-        # Não inferir interesse do usuário a partir de RAM: o recurso pode ser
-        # adicionado posteriormente pelo Gerenciador, sem reinstalar o núcleo.
-        $voiceDefault = $false
-        if (Ask-YesNo 'Instalar voz, microfone e transcrição Whisper? (pode adicionar depois no Gerenciador)' $voiceDefault) {
-            $selected += 'voice'
-            if ($NvidiaDriverOK -and (Ask-YesNo 'Instalar aceleração NVIDIA CUDA/cuDNN para Whisper? (download adicional de centenas de MB)' $false)) {
-                $selected += 'whisper-cuda'
-            }
-        }
     }
     $selected = @('core') + @($selected | Where-Object { $_ -ne 'core' } | Select-Object -Unique)
     $known = @('core', 'office', 'ocr', 'web', 'voice', 'whisper-cuda')
@@ -282,16 +263,8 @@ try {
     }
     if ($ollamaPath) {
         Write-Host "Ollama encontrado: $ollamaPath" -ForegroundColor Green
-    } elseif ($Mode -eq 'Install' -and -not $Components -and (Ask-YesNo 'Ollama não foi encontrado. Deseja instalá-lo pelo winget agora?' $true)) {
-        $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
-        if ($winget) {
-            & $winget.Source install --id Ollama.Ollama --exact --silent --accept-package-agreements --accept-source-agreements
-            if ($LASTEXITCODE -ne 0) { Write-Host 'Ollama não foi instalado. Baixe pelo site oficial: https://ollama.com/download' -ForegroundColor Yellow }
-        } else {
-            Write-Host 'winget não está disponível. Baixe pelo site oficial: https://ollama.com/download' -ForegroundColor Yellow
-        }
     } else {
-        Write-Host 'Ollama não instalado. Instale pelo site oficial quando desejar: https://ollama.com/download' -ForegroundColor Yellow
+        Write-Host 'Ollama não instalado. A Gac.IA mostrará o estado e o link oficial no menu Recursos e downloads.' -ForegroundColor Yellow
     }
 
     Write-Host ''
@@ -300,8 +273,7 @@ try {
     Write-Host '============================================================' -ForegroundColor Green
     Write-Host ('Componentes registrados: ' + ($selected -join ', '))
     Write-Host 'Modelos de linguagem e Whisper não foram baixados automaticamente.'
-    Write-Host 'O ComfyUI Desktop é instalado separadamente pelo site oficial: https://www.comfy.org/download'
-    Write-Host 'Execute iniciar.bat para abrir a Gac.IA ou gerenciador.bat para gerenciar os componentes.'
+    Write-Host 'Abra iniciar.bat; o menu Recursos e downloads ajuda a preparar os itens que você escolher.'
     exit 0
 }
 catch {
