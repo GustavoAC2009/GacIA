@@ -65,13 +65,15 @@ jobs:
           & $compiler "/DAppVersion=$env:APP_VERSION" /DStageDir="..\dist\stage\Gac.IA" distribuicao/GacIA.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path -LiteralPath 'dist/GacIA-Setup.exe')) { throw 'Installer EXE was not created.' }
+          $hash = (Get-FileHash -LiteralPath 'dist/GacIA-Setup.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  GacIA-Setup.exe" | Set-Content -LiteralPath 'dist/GacIA-Setup.exe.sha256' -Encoding ascii
 
-      - name: Publish private GitHub release
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $tag = "v$env:APP_VERSION"
-          $releaseArgs = @('release', 'create', $tag, 'dist/GacIA-Setup.exe', '--title', "Gac.IA $tag", '--generate-notes')
+          $releaseArgs = @('release', 'create', $tag, 'dist/GacIA-Setup.exe', 'dist/GacIA-Setup.exe.sha256', '--title', "Gac.IA $tag", '--generate-notes')
           if ($env:RELEASE_CHANNEL -eq 'development') { $releaseArgs += '--prerelease' }
           gh @releaseArgs
