@@ -42,3 +42,27 @@ def url_releases() -> str | None:
     if canal_atualizacoes() == "development":
         return f"https://github.com/{slug}/releases"
     return f"https://github.com/{slug}/releases/latest"
+
+
+_VERSION_RE = re.compile(r"^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:[-.]([A-Za-z]+)(?:[.-]?(\\d+))?)?$")
+
+
+def comparar_versoes(instalada: str, publicada: str) -> int | None:
+    """Compara versões semver simples; retorna None para versão local não reconhecida."""
+    def chave(value: str):
+        match = _VERSION_RE.fullmatch(str(value or "").strip())
+        if not match:
+            return None
+        major, minor, patch = (int(match.group(i)) for i in (1, 2, 3))
+        label = (match.group(4) or "").lower()
+        number = int(match.group(5) or 0)
+        ranks = {"dev": 0, "preview": 0, "alpha": 1, "a": 1, "beta": 2, "b": 2, "rc": 3}
+        if not label:
+            return major, minor, patch, 4, 0, ""
+        return major, minor, patch, ranks.get(label, 0), number, label
+
+    left = chave(instalada)
+    right = chave(publicada)
+    if left is None or right is None:
+        return None
+    return (left > right) - (left < right)
